@@ -83,30 +83,35 @@ for (int sx = 0; sx < 120; sx++)
 var nodes = new List<Node>();
 var total = volumes.Count;
 var done = 0;
-// Parallel.For(0,volumes.Count, idx =>
-for (int idx = 0; idx < volumes.Count; idx++)
+Parallel.For(0, volumes.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async idx =>
+// for (int idx = 0; idx < volumes.Count; idx++)
 {
     var v = volumes[idx];
 
     var neighbors = new int[8];
 
-    var left = volumes.FindIndex(x => x.Position.X == v.Position.X - CELL_SIZE && x.Position.Y == v.Position.Y);
-    var bottomLeft = volumes.FindIndex(x => x.Position.X == v.Position.X - CELL_SIZE && x.Position.Y == v.Position.Y + CELL_SIZE);
-    var bottom = volumes.FindIndex(x => x.Position.X == v.Position.X && x.Position.Y == v.Position.Y + CELL_SIZE);
-    var bottomRight = volumes.FindIndex(x => x.Position.X == v.Position.X + CELL_SIZE && x.Position.Y == v.Position.Y + CELL_SIZE);
-    var right = volumes.FindIndex(x => x.Position.X == v.Position.X + CELL_SIZE && x.Position.Y == v.Position.Y);
-    var topRight = volumes.FindIndex(x => x.Position.X == v.Position.X + CELL_SIZE && x.Position.Y == v.Position.Y - CELL_SIZE);
-    var top = volumes.FindIndex(x => x.Position.X == v.Position.X && x.Position.Y == v.Position.Y - CELL_SIZE);
-    var topLeft = volumes.FindIndex(x => x.Position.X == v.Position.X - CELL_SIZE && x.Position.Y == v.Position.Y - CELL_SIZE);
+    var left = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X - CELL_SIZE && x.Position.Y == v.Position.Y && IsWalkable(v, x)));
+    var bottomLeft = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X - CELL_SIZE && x.Position.Y == v.Position.Y + CELL_SIZE && IsWalkable(v, x)));
+    var bottom = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X && x.Position.Y == v.Position.Y + CELL_SIZE && IsWalkable(v, x)));
+    var bottomRight = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X + CELL_SIZE && x.Position.Y == v.Position.Y + CELL_SIZE && IsWalkable(v, x)));
+    var right = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X + CELL_SIZE && x.Position.Y == v.Position.Y && IsWalkable(v, x)));
+    var topRight = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X + CELL_SIZE && x.Position.Y == v.Position.Y - CELL_SIZE && IsWalkable(v, x)));
+    var top = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X && x.Position.Y == v.Position.Y - CELL_SIZE && IsWalkable(v, x)));
+    var topLeft = Task.Run(() => volumes.FindIndex(x => x.Position.X == v.Position.X - CELL_SIZE && x.Position.Y == v.Position.Y - CELL_SIZE && IsWalkable(v, x)));
 
-    neighbors[0] = left;
-    neighbors[1] = bottomLeft;
-    neighbors[2] = bottom;
-    neighbors[3] = bottomRight;
-    neighbors[4] = right;
-    neighbors[5] = topRight;
-    neighbors[6] = top;
-    neighbors[7] = topLeft;
+    var tasks = new List<Task> { left, bottomLeft, bottom, bottomRight, right, topRight, top, topLeft };
+
+    await Task.WhenAll(tasks).ContinueWith(t =>
+    {
+        neighbors[0] = left.Result;
+        neighbors[1] = bottomLeft.Result;
+        neighbors[2] = bottom.Result;
+        neighbors[3] = bottomRight.Result;
+        neighbors[4] = right.Result;
+        neighbors[5] = topRight.Result;
+        neighbors[6] = top.Result;
+        neighbors[7] = topLeft.Result;
+    });
 
 
     var distances = new int[8];
@@ -144,9 +149,9 @@ for (int idx = 0; idx < volumes.Count; idx++)
     nodes.Add(node);
 
     Interlocked.Increment(ref done);
-    if (done % 1000 == 0) System.Console.WriteLine($"{done}/{total} {done / (float)total:P1}");
+    if (done % 10 == 0) System.Console.WriteLine($"{done}/{total} {done / (float)total:P1}");
 }
-// );
+);
 var file = @"E:\TERA_DEV\pathdata_test.gdi";
 using var gdi = new BinaryWriter(new BufferedStream(File.OpenWrite(file)));
 
@@ -184,81 +189,6 @@ foreach (var node in nodes)
 }
 
 
-// var s = "";
-// if (lt == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-// if (t == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-// if (rt == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-// s += "\n";
-// if (l == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-
-// s += "x";
-
-// if (r == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-// s += "\n";
-// if (lb == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-// if (b == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-// if (rb == default)
-// {
-//     s += " ";
-// }
-// else
-// {
-//     s += "•";
-// }
-
-// System.Console.WriteLine(s);
-
-
-
 Point2D GetSquarePos(int sx, int sy)
 {
     return new Point2D(
@@ -284,6 +214,14 @@ Point2D GetCellPos(int sx, int sy, int cx, int cy)
 int GetCellIndex(int sx, int sy, int cx, int cy)
 {
     return cy + (NUM_CELLS * cx) + (sy + sx * NUM_SQUARES) * (int)Math.Pow(NUM_CELLS, 2);
+}
+
+bool IsWalkable(VolumePosition curr, VolumePosition other)
+{
+    // z >= volume - 15
+    // z > volume.Z + volume.H - 50
+    return other.Volumes[0].Z <= curr.Volumes[0].Z + 15
+        && curr.Volumes[0].Z + 50 > other.Volumes[0].Z + other.Volumes[0].Height;
 }
 
 readonly record struct VolumePosition(Volume[] Volumes, Point2D Position);
