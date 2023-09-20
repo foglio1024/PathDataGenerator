@@ -229,22 +229,80 @@ int GetCellIndex(int sx, int sy, int cx, int cy)
     return cy + (sy * NUM_CELLS) + (cx * NUM_CELLS * NUM_SQUARES) + (sx * NUM_CELLS * NUM_CELLS * NUM_SQUARES);
 }
 
-// add proper walkable check
-bool IsWalkable(IndexedVolume curr, IndexedVolume other)
+Volume? GetCellVolumeAt(IndexedVolume cell, int z, bool alsoSearchAbove)
 {
-    var currZ = curr.Volumes[0].Z ;
-    var otherZ = other.Volumes[0].Z;
+    if (z == -16777215)
+        return cell.Volumes.FirstOrDefault();
 
-    var curPos = GetCellPos(curr.Index);
-    var otherPos = GetCellPos(other.Index);
+    return alsoSearchAbove
+        ? cell.Volumes.MinBy(volume => int.Abs(volume.Z - z))
+        : cell.Volumes.LastOrDefault(volume => volume.Z <= z);
+}
 
-    var dist = Math.Sqrt(Math.Pow(otherPos.X - curPos.X, 2) + Math.Pow(otherPos.Y - curPos.Y, 2));
+Volume? CanGoNeighbourhoodCell(IndexedVolume current, IndexedVolume next, int z)
+{
+    var currentCell = current.Index;
+    var nextCell = next.Index;
+    
+    if (int.Abs(currentCell.GetX() - nextCell.GetX()) > 1 ||
+        int.Abs(currentCell.GetY() - nextCell.GetY()) > 1) 
+        return null;
+    
+    var nextVolume = GetCellVolumeAt(next, z + 15, false);
+    
+    if (nextVolume == null)
+        return null;
 
-    return
-        Math.Abs(currZ - otherZ) <  15 
-        && dist < SQUARE_SIZE
-        //&& currZ + 50 < otherZ + other.Volumes[0].Height // useless when using only one volume and it's wong anyway
-        ;
+    if (z + 50 >= nextVolume.Value.Z + nextVolume.Value.Height)
+        return null;
+
+    if (z > nextVolume.Value.Z + 50)
+        return null;
+
+    return nextVolume;
+}
+
+bool IsWalkable(Point3D start, Point3D end)
+{
+    var heading = (end - start) with {Z = 0};
+    var headingSquared = heading.Squared();
+
+    if (Math.Abs(headingSquared - 1) < 0.01 || headingSquared > 1)
+        heading /= float.Sqrt(headingSquared) * 15;
+
+    var current = start;
+    var next = start;
+    var currentCellZ = (int) start.Z;
+
+    var step = 0;
+    while (current != end)
+    {
+        while (true)
+        {
+            if (step++ > 1000) return false;
+
+            next = (end - current).Squared() >= 16 * 16
+                ? next + heading
+                : end;
+
+            if (current.ToCellIndex() != next.ToCellIndex())
+                break;
+
+            current = next;
+        }
+
+        indexedVolumes.TryGetValue(current.ToCellIndex().ToIndex(), out var currentVolumes);
+        indexedVolumes.TryGetValue(next.ToCellIndex().ToIndex(), out var nextVolumes);
+
+        var nextVolume = CanGoNeighbourhoodCell(currentVolumes, nextVolumes, currentCellZ);
+        if (nextVolume == null) break;
+
+        currentCellZ = nextVolume.Value.Z;
+        current = next;
+    }
+
+    var zDiff = float.Abs(end.Z - currentCellZ);
+    return float.Abs(zDiff) <= 15;
 }
 
 
@@ -259,6 +317,26 @@ readonly record struct Cell(Volume[] Volumes);
 readonly record struct Volume(short Z, ushort Height);
 
 readonly record struct Point2D(float X, float Y);
+
+readonly record struct Point3D(float X, float Y, float Z)
+{
+    public static Point3D operator +(Point3D a, Point3D b) =>
+        new() { X = a.X + b.X, Y = a.Y + b.Y, Z = a.Z + b.Z };
+
+    public static Point3D operator -(Point3D a) =>
+        new() { X = -a.X, Y = -a.Y, Z = -a.Z };
+
+    public static Point3D operator -(Point3D a, Point3D b) => a + (-b);
+
+    public static Point3D operator /(Point3D a, float b) =>         
+        new() { X = a.X / b, Y = a.Y / b, Z = a.Z / b };
+
+    public float Squared() => X * X + Y * Y + Z * Z;
+
+    public CellIndex ToCellIndex() => new CellIndex()
+        .AddX((int) (X / 16))
+        .AddY((int) (Y / 16));
+};
 
 readonly record struct Node(float X, float Y, float Z, int[] Neighbors, int[] Distances);
 
@@ -293,9 +371,19 @@ readonly record struct CellIndex(int SX, int SY, int CX, int CY)
         return this with { CY = CY + y };
     }
 
+    public int GetX()
+    {
+        return SX * 8 + CX;
+    }
+
+    public int GetY()
+    {
+        return SY * 8 + CY;
+    }
+    
     public int ToIndex()
     {
-        return CY + (SY * 8) + (CX * 8 * 120) + (SX * 8 * 8 * 120);
+        return GetY() + 120 * GetX();
     }
 }
 
