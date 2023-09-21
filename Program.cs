@@ -1,4 +1,6 @@
 ﻿
+using System.Collections.Concurrent;
+
 const int NUM_SQUARES = 120;
 const int NUM_CELLS = 8;
 const float ZONE_SIZE = 15360;//614.4f;
@@ -61,7 +63,7 @@ for (var sx = 0; sx < zone.Squares.GetLength(0); sx++)
     }
 }
 
-var indexedVolumes = new Dictionary<int, IndexedVolume>();
+var indexedVolumes = new Dictionary<CellIndex, IndexedVolume>();
 
 Console.WriteLine("Zone loaded");
 
@@ -75,20 +77,28 @@ for (int sx = 0; sx < 120; sx++)
             {
                 var vols = zone.Squares[sx, sy].Cells[cx, cy].Volumes;
                 var idx = GetCellIndex(sx, sy, cx, cy);
-                indexedVolumes[idx] = new IndexedVolume(new CellIndex(sx, sy, cx, cy), vols);
+
+                for (int vidx = 0; vidx < vols.Length; vidx++)
+                {
+                    var cidx = new CellIndex(sx, sy, cx, cy, vidx);
+                    indexedVolumes[cidx] = new IndexedVolume(cidx, vols[vidx]);
+                }
+
             }
         }
     }
 }
 
-var nodes = new Dictionary<(int, int), Node>();
+var nodes = new ConcurrentDictionary<int, Node>();
 
 var total = indexedVolumes.Count;
 var done = 0;
-//Parallel.For(0, indexed.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, idx =>
-for (int idx = 0; idx < indexedVolumes.Count; idx++)
+
+var volumesArray = indexedVolumes.Values.ToArray();
+Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, idx =>
+//for (int idx = 0; idx < indexedVolumes.Count; idx++)
 {
-    var v = indexedVolumes[idx];
+    var v = volumesArray[idx];
 
     var neighbourCells = new[]
     {
@@ -103,12 +113,12 @@ for (int idx = 0; idx < indexedVolumes.Count; idx++)
     };
 
     var neighbourIndexedVolumes =
-        neighbourCells.Select(cell => indexedVolumes.TryGetValue(cell.ToIndex(), out var neigh) ? neigh : (IndexedVolume?) null).ToArray();
+        neighbourCells.Select(cell => indexedVolumes.TryGetValue(cell, out var neigh) ? neigh : (IndexedVolume?)null).ToArray();
 
-    for (var vi = 0; vi < v.Volumes.Length; vi++)
+    //for (var vi = 0; vi < v.Volumes.Length; vi++)
     {
-        var volume = v.Volumes[vi];
-        var neighbors = new (int, int)[8];
+        var volume = v.Volume;
+        var neighbors = new int[8];
         var distances = new int[8];
         var currCellPos = GetCellPos(v.Index).ToPoint3D() with { Z = volume.Z };
 
@@ -117,40 +127,51 @@ for (int idx = 0; idx < indexedVolumes.Count; idx++)
             var niv = neighbourIndexedVolumes[i];
             if (niv == null)
             {
-                neighbors[i] = (-1, -1);
+                neighbors[i] = -1;
                 distances[i] = int.MaxValue;
                 continue;
             }
 
-            var neigh = niv.Value;
-            var neighVolume = GetCellVolumeAt(neigh, volume.Z + 15, false);
-            var neighCellPos = GetCellPos(neigh.Index).ToPoint3D();
-            
+            //var neigh = niv.Value;
+            var searchIdx = 0;
+            var neighs = new List<IndexedVolume>();
+            while (indexedVolumes.TryGetValue(niv.Value.Index with { VolumeIdx = searchIdx }, out var neigh))
+            {
+                neighs.Add(neigh);
+                searchIdx++;
+            }
+            //var neighs = indexedVolumes.Keys.Where(k2 => k2 with { VolumeIdx = -1 } == niv.Value.Index with { VolumeIdx = -1 }).ToArray()
+                            //.Select(key => indexedVolumes[key]).ToArray();
+
+            var neighVolume = GetCellVolumeAt(neighs.ToArray(), volume.Z + 15, false);
+
+            var neighCellPos = GetCellPos(niv.Value.Index).ToPoint3D();
+
             if (neighVolume == null || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Value.Z }))
             {
-                neighbors[i] = (-1, -1);
+                neighbors[i] = -1;
                 distances[i] = int.MaxValue;
                 continue;
             }
 
             neighCellPos = neighCellPos with { Z = neighVolume.Value.Z };
-            
+
             // get actual coords and calculate distance
             var dist = Math.Sqrt((neighCellPos - currCellPos).Squared());
 
             // TODO: figure out indices
-            neighbors[i] = (idx, Array.IndexOf(neigh.Volumes, volume));
+            neighbors[i] = idx; //(idx, Array.IndexOf(neigh.Volumes, volume));
             distances[i] = Convert.ToInt32(dist);
         }
 
         var node = new Node(currCellPos.X, currCellPos.Y, currCellPos.Z, neighbors, distances);
-        nodes[(idx, vi)] = node;
+        nodes[idx] = node;
     }
 
     Interlocked.Increment(ref done);
     if (done % 1000 == 0) Console.WriteLine($"{done}/{total} {done / (float)total:P1}");
 }
-//);
+);
 
 // --- //
 
@@ -230,27 +251,27 @@ int GetCellIndex(int sx, int sy, int cx, int cy)
     return cy + (sy * NUM_CELLS) + (cx * NUM_CELLS * NUM_SQUARES) + (sx * NUM_CELLS * NUM_CELLS * NUM_SQUARES);
 }
 
-Volume? GetCellVolumeAt(IndexedVolume cell, int z, bool alsoSearchAbove)
+Volume? GetCellVolumeAt(IndexedVolume[] cell, int z, bool alsoSearchAbove)
 {
     if (z == -16777215)
-        return cell.Volumes.FirstOrDefault();
+        return cell.FirstOrDefault().Volume;
 
     return alsoSearchAbove
-        ? cell.Volumes.MinBy(volume => int.Abs(volume.Z - z))
-        : cell.Volumes.LastOrDefault(volume => volume.Z <= z);
+        ? cell.MinBy(idx => int.Abs(idx.Volume.Z - z)).Volume
+        : cell.LastOrDefault(idx => idx.Volume.Z <= z).Volume;
 }
 
 Volume? CanGoNeighbourhoodCell(IndexedVolume current, IndexedVolume next, int z)
 {
     var currentCell = current.Index;
     var nextCell = next.Index;
-    
+
     if (int.Abs(currentCell.GetX() - nextCell.GetX()) > 1 ||
-        int.Abs(currentCell.GetY() - nextCell.GetY()) > 1) 
+        int.Abs(currentCell.GetY() - nextCell.GetY()) > 1)
         return null;
-    
-    var nextVolume = GetCellVolumeAt(next, z + 15, false);
-    
+
+    var nextVolume = GetCellVolumeAt(new[] { next }, z + 15, false);
+
     if (nextVolume == null)
         return null;
 
@@ -265,7 +286,7 @@ Volume? CanGoNeighbourhoodCell(IndexedVolume current, IndexedVolume next, int z)
 
 bool IsWalkable(Point3D start, Point3D end)
 {
-    var heading = (end - start) with {Z = 0};
+    var heading = (end - start) with { Z = 0 };
     var headingSquared = heading.Squared();
 
     if (Math.Abs(headingSquared - 1) < 0.01 || headingSquared > 1)
@@ -273,7 +294,7 @@ bool IsWalkable(Point3D start, Point3D end)
 
     var current = start;
     var next = start;
-    var currentCellZ = (int) start.Z;
+    var currentCellZ = (int)start.Z;
 
     var step = 0;
     while (current != end)
@@ -292,8 +313,8 @@ bool IsWalkable(Point3D start, Point3D end)
             current = next;
         }
 
-        indexedVolumes.TryGetValue(current.ToCellIndex().ToIndex(), out var currentVolumes);
-        indexedVolumes.TryGetValue(next.ToCellIndex().ToIndex(), out var nextVolumes);
+        indexedVolumes.TryGetValue(current.ToCellIndex(), out var currentVolumes);
+        indexedVolumes.TryGetValue(next.ToCellIndex(), out var nextVolumes);
 
         var nextVolume = CanGoNeighbourhoodCell(currentVolumes, nextVolumes, currentCellZ);
         if (nextVolume == null) break;
@@ -307,7 +328,7 @@ bool IsWalkable(Point3D start, Point3D end)
 }
 
 
-readonly record struct IndexedVolume(CellIndex Index, Volume[] Volumes);
+readonly record struct IndexedVolume(CellIndex Index, Volume Volume);
 
 readonly record struct Zone(Square[,] Squares);
 
@@ -332,19 +353,19 @@ readonly record struct Point3D(float X, float Y, float Z)
 
     public static Point3D operator -(Point3D a, Point3D b) => a + (-b);
 
-    public static Point3D operator /(Point3D a, float b) =>         
+    public static Point3D operator /(Point3D a, float b) =>
         new() { X = a.X / b, Y = a.Y / b, Z = a.Z / b };
 
     public float Squared() => X * X + Y * Y + Z * Z;
 
     public CellIndex ToCellIndex() => new CellIndex()
-        .AddX((int) (X / 16))
-        .AddY((int) (Y / 16));
+        .AddX((int)(X / 16))
+        .AddY((int)(Y / 16));
 };
 
-readonly record struct Node(float X, float Y, float Z, (int, int)[] Neighbors, int[] Distances);
+readonly record struct Node(float X, float Y, float Z, int[] Neighbors, int[] Distances);
 
-readonly record struct CellIndex(int SX, int SY, int CX, int CY)
+readonly record struct CellIndex(int SX, int SY, int CX, int CY, int VolumeIdx)
 {
     public CellIndex AddX(int x)
     {
@@ -384,7 +405,7 @@ readonly record struct CellIndex(int SX, int SY, int CX, int CY)
     {
         return SY * 8 + CY;
     }
-    
+
     public int ToIndex()
     {
         return GetY() + 120 * GetX();
