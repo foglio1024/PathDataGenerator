@@ -9,7 +9,7 @@ const float ZONE_SIZE = 15360;//614.4f;
 const float SQUARE_SIZE = ZONE_SIZE / (float)NUM_SQUARES;
 const float CELL_SIZE = SQUARE_SIZE / (float)NUM_CELLS;
 
-var idxFile = @"D:\Projects\tera\arise\path-data-generator\x993y1008.idx";
+var idxFile = @"E:\TERA_DEV\Server\Topology\x993y1008.idx";
 var geoFile = Path.ChangeExtension(idxFile, "geo");
 
 var zoneXY = Path.GetFileNameWithoutExtension(idxFile).Replace("x", "").Replace("y", " ").Split();
@@ -183,7 +183,7 @@ Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParalleli
 
 // --- //
 
-var ouputPath = @"D:\Projects\tera\arise\path-data-generator\pathdata_test.gdi";
+var ouputPath = @"E:\TERA_DEV\pathdata_test.gdi";
 
 using var gdi = new BinaryWriter(new BufferedStream(File.OpenWrite(ouputPath)));
 
