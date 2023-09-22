@@ -155,20 +155,20 @@ Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParalleli
 
             var neighCellPos = GetCellPos(niv.Value.Index).ToPoint3D();
 
-            if (neighVolume == null || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Value.Z }))
+            if (neighVolume == null || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Value.Volume.Z }))
             {
                 neighbors[i] = -1;
                 distances[i] = int.MaxValue;
                 continue;
             }
 
-            neighCellPos = neighCellPos with { Z = neighVolume.Value.Z };
+            neighCellPos = neighCellPos with { Z = neighVolume.Value.Volume.Z };
 
             // get actual coords and calculate distance
             var dist = Math.Sqrt((neighCellPos - currCellPos).Squared());
 
             // TODO: figure out indices
-            neighbors[i] = idx; //(idx, Array.IndexOf(neigh.Volumes, volume));
+            neighbors[i] = Array.IndexOf(volumesArray, neighVolume); //idx; //(idx, Array.IndexOf(neigh.Volumes, volume));
             distances[i] = Convert.ToInt32(dist);
         }
 
@@ -276,14 +276,14 @@ int GetCellIndex(int sx, int sy, int cx, int cy)
     return cy + (sy * NUM_CELLS) + (cx * NUM_CELLS * NUM_SQUARES) + (sx * NUM_CELLS * NUM_CELLS * NUM_SQUARES);
 }
 
-Volume? GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
+IndexedVolume? GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
 {
     if (z == -16777215)
-        return cell.FirstOrDefault().Volume;
+        return cell.FirstOrDefault();
 
     return alsoSearchAbove
-        ? cell.MinBy(idx => int.Abs(idx.Volume.Z - z)).Volume
-        : cell.LastOrDefault(idx => idx.Volume.Z <= z).Volume;
+        ? cell.MinBy(idx => int.Abs(idx.Volume.Z - z))
+        : cell.LastOrDefault(idx => idx.Volume.Z <= z);
 }
 
 Volume? CanGoNeighbourhoodCell(CellIndex current, CellIndex next, int z)
@@ -298,13 +298,13 @@ Volume? CanGoNeighbourhoodCell(CellIndex current, CellIndex next, int z)
     if (nextVolume == null)
         return null;
 
-    if (z + 50 >= nextVolume.Value.Z + nextVolume.Value.Height)
+    if (z + 50 >= nextVolume.Value.Volume.Z + nextVolume.Value.Volume.Height)
         return null;
 
-    if (z > nextVolume.Value.Z + 50)
+    if (z > nextVolume.Value.Volume.Z + 50)
         return null;
 
-    return nextVolume;
+    return nextVolume.Value.Volume;
 }
 
 bool IsWalkable(Point3D start, Point3D end)
