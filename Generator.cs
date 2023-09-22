@@ -9,37 +9,36 @@ class Generator
     public const int NUM_CELLS = 8;
     public const float SQUARE_SIZE = Zone.ZONE_SIZE / (float)NUM_SQUARES;
     public const float CELL_SIZE = SQUARE_SIZE / (float)NUM_CELLS;
-
+    public static Area _area;
     Indexer? _indexer;
-    Zone _zone;
-    //List<Zone> _zones;
+    //Zone _zone;
+    List<Zone> _zones;
     ConcurrentDictionary<int, Node>? _nodes;
     string _areaName;
-    Vector2 _origin;
 
     public Generator(string areaName)
     {
-        _zone = new();
+        _zones = new();
 
         _areaName = areaName;
 
-        //var areaDescrTask = Utils.GetAreaDescription(areaName);
-        //areaDescrTask.Wait();
-        //var areaDescr = areaDescrTask.Result;
+        var areaDescrTask = Utils.GetAreaDescription(areaName);
+        areaDescrTask.Wait();
+        var areaDescr = areaDescrTask.Result;
 
-        //_origin = areaDescr.Origin;
+        foreach (var zoneLocation in areaDescr.ZoneLocations)
+        {
+            var zone = LoadZone(Path.Combine(Utils.TOPO_PATH, $"x{zoneLocation.X}y{zoneLocation.Y}.idx"));
+            _zones.Add(zone);
+        }
 
-        //foreach (var zoneLocation in areaDescr.ZoneLocations)
-        //{
-        //    var zone = LoadZone(Path.Combine(Utils.TOPO_PATH, $"x{zoneLocation.X}y{zoneLocation.X}.idx"));
-        //    _zones.Add(zone);
-        //}
+        _area = new Area(_zones.ToArray(), areaDescr.Origin);
 
-        //_indexer = new Indexer(zone);
+        _indexer = new Indexer(_area);
 
     }
 
-    public Zone LoadZone(string idxFilePath)
+    Zone LoadZone(string idxFilePath)
     {
         var zoneXY = Path.GetFileNameWithoutExtension(idxFilePath)
                          .Replace("x", "").Replace("y", " ").Split();
@@ -53,7 +52,7 @@ class Generator
         {
             Squares = new Square[120, 120],
             Location = new Vector2(zoneX, zoneY),
-            Origin = _origin,
+            Origin = _area.Origin,
         };
 
         var idxReader = new BinaryReader(new BufferedStream(File.OpenRead(idxFilePath)));
@@ -95,8 +94,7 @@ class Generator
         }
 
         Console.WriteLine("Zone loaded");
-        _indexer = new Indexer(zone);
-        _zone = zone;
+
         return zone;
     }
 
@@ -134,7 +132,7 @@ class Generator
             var volume = v.Volume;
             var neighbors = new int[8];
             var distances = new int[8];
-            var currCellPos = _zone.GetCellPos(v.Index).ToVector3() with { Z = volume.Z };
+            var currCellPos = _area.GetCellPos(v.Index).ToVector3() with { Z = volume.Z };
 
             for (int i = 0; i < 8; i++)
             {
@@ -150,7 +148,7 @@ class Generator
 
                 var neighVolume = GetCellVolumeAt(neighs.ToArray(), volume.Z + 15, false);
 
-                var neighCellPos = _zone.GetCellPos(niv.Value.Index).ToVector3();
+                var neighCellPos = _area.GetCellPos(niv.Value.Index).ToVector3();
 
                 if (neighVolume == null
                 || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Value.Volume.Z }))
@@ -186,26 +184,20 @@ class Generator
 
         using var gdi = new BinaryWriter(new BufferedStream(File.OpenWrite(gdiPath)));
 
-        // todo: get actual start/end
-        var x1 = _zone.Location.X;
-        var y1 = _zone.Location.Y;
-        var x2 = _zone.Location.X;
-        var y2 = _zone.Location.Y;
-
-        gdi.Write(x1);
-        gdi.Write(y1);
-        gdi.Write(x2);
-        gdi.Write(y2);
+        gdi.Write((int)_area.Start.X);
+        gdi.Write((int)_area.Start.Y);
+        gdi.Write((int)_area.End.X);
+        gdi.Write((int)_area.End.Y);
 
         gdi.Write(_nodes.Count);
 
         // todo: write the rest of the arrays
         using var nod = new BinaryWriter(new BufferedStream(File.OpenWrite(Path.ChangeExtension(gdiPath, "nod"))));
-
+        var offset = (_area.Start - _area.Origin);
         foreach (var node in _nodes.Values)
         {
-            nod.Write(node.X);
-            nod.Write(node.Y);
+            nod.Write(node.X + offset.X * Zone.ZONE_SIZE);
+            nod.Write(node.Y + offset.Y * Zone.ZONE_SIZE);
             nod.Write(node.Z);
 
             foreach (var nidx in node.Neighbors)

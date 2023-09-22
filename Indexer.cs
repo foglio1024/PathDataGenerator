@@ -9,30 +9,38 @@ class Indexer
     public readonly ReadOnlyCollection<IndexedVolume> VolumesArray;
     public readonly ReadOnlyDictionary<CellIndex, int> VolumeIndices;
 
-    public Indexer(Zone zone)
+    public Indexer(Area area)
     {
         var tmpDict = new Dictionary<CellIndex, IndexedVolume>();
-
-        for (int sx = 0; sx < Generator.NUM_SQUARES; sx++)
+        for (int zx = 0; zx < area.Size.Width; zx++)
         {
-            for (int sy = 0; sy < Generator.NUM_SQUARES; sy++)
+            for (int zy = 0; zy < area.Size.Height; zy++)
             {
-                for (int cx = 0; cx < Generator.NUM_CELLS; cx++)
+                for (int sx = 0; sx < Generator.NUM_SQUARES; sx++)
                 {
-                    for (int cy = 0; cy < Generator.NUM_CELLS; cy++)
+                    for (int sy = 0; sy < Generator.NUM_SQUARES; sy++)
                     {
-                        var vols = zone.Squares[sx, sy].Cells[cx, cy].Volumes;
-
-                        for (int vidx = 0; vidx < vols.Length; vidx++)
+                        for (int cx = 0; cx < Generator.NUM_CELLS; cx++)
                         {
-                            var cidx = new CellIndex(sx, sy, cx, cy, vidx);
-                            tmpDict[cidx] = new IndexedVolume(cidx, vols[vidx]);
-                        }
+                            for (int cy = 0; cy < Generator.NUM_CELLS; cy++)
+                            {
+                                var vols = area.Zones[zx + zy * area.Size.Width]
+                                               .Squares[sx, sy]
+                                               .Cells[cx, cy]
+                                               .Volumes;
 
+                                for (int vidx = 0; vidx < vols.Length; vidx++)
+                                {
+                                    var cidx = new CellIndex(zx, zy, sx, sy, cx, cy, vidx);
+                                    tmpDict[cidx] = new IndexedVolume(cidx, vols[vidx]);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+
         IndexedVolumes = new ReadOnlyDictionary<CellIndex, IndexedVolume>(tmpDict);
         VolumesArray = IndexedVolumes.Values.ToArray().AsReadOnly();
 

@@ -6,8 +6,8 @@ namespace PathDataGenerator;
 
 static class Utils
 {
-    public static string DC_PATH = "";
-    public static string TOPO_PATH = "";
+    public static string DC_PATH = @"E:\TERA_DEV\TERA_GF115\Client\S1Game\S1Data\DataCenter_Final_EUR.dat";
+    public static string TOPO_PATH = @"E:\TERA_DEV\Server\Topology\";
 
     public static float Mod(float a, float b) => (a % b + b) % b;
 
@@ -20,6 +20,9 @@ static class Utils
 
     internal static CellIndex GetCellIndexFromPoint(Vector2 point)
     {
+        var zx = point.X / Zone.ZONE_SIZE;
+        var zy = point.Y / Zone.ZONE_SIZE;
+
         var zoneLocalX = Utils.Mod(point.X, Zone.ZONE_SIZE);
         var zoneLocalY = Utils.Mod(point.Y, Zone.ZONE_SIZE);
 
@@ -29,7 +32,7 @@ static class Utils
         var cellX = squareLocalX / 16;
         var cellY = squareLocalY / 16;
 
-        return new CellIndex(squareX, squareY, cellX, cellY, -1);
+        return new CellIndex((int)zx, (int)zy, squareX, squareY, cellX, cellY, -1);
     }
 
     internal static async Task<AreaDescription> GetAreaDescription(string areaName)
@@ -42,10 +45,11 @@ static class Utils
 
         var area = dc.Children.Single(x => x.Name == "AreaList")
             .Descendants().FirstOrDefault(x => x.Name == "Area"
-                && x.Attributes["name"].Value == areaName);
+                && x.Attributes["name"].AsString == areaName);
 
         var zones = area.Descendants().Where(x => x.Name == "Zone")
-            .Select(z => new Vector2(z.Attributes["x"].AsInt32, z.Attributes["y"].AsInt32));
+            .Select(z => new Vector2(z.Attributes["x"].AsInt32, z.Attributes["y"].AsInt32))
+            .Reverse(); // todo: check this for bi-dim maps
 
         var origin = new Vector2(area.Parent.Attributes["originZoneX"].AsInt32,
                                  area.Parent.Attributes["originZoneY"].AsInt32);
@@ -57,6 +61,5 @@ static class Utils
 
 readonly record struct AreaDescription(Vector2 Origin, ReadOnlyCollection<Vector2> ZoneLocations)
 {
-    public Vector2 Start => ZoneLocations.Min();
-    public Vector2 End => ZoneLocations.Max();
+
 }
