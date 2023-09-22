@@ -1,6 +1,5 @@
 ﻿
 using System.Collections.Concurrent;
-using System.Diagnostics.CodeAnalysis;
 
 const int NUM_SQUARES = 120;
 const int NUM_CELLS = 8;
@@ -109,6 +108,15 @@ List<IndexedVolume> GetIndexedVolumesAtCell(CellIndex indexedVolume)
 }
 
 var volumesArray = indexedVolumes.Values.ToArray();
+
+var volumeIndices = new Dictionary<CellIndex, int>();
+
+for (int i = 0; i < volumesArray.Length; i++)
+{
+    var cell = volumesArray[i];
+    volumeIndices[cell.Index] = i;
+}
+
 Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, idx =>
 //for (int idx = 0; idx < indexedVolumes.Count; idx++)
 {
@@ -168,7 +176,7 @@ Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParalleli
             var dist = Math.Sqrt((neighCellPos - currCellPos).Squared());
 
             // TODO: figure out indices
-            neighbors[i] = Array.IndexOf(volumesArray, neighVolume); //idx; //(idx, Array.IndexOf(neigh.Volumes, volume));
+            neighbors[i] = volumeIndices[neighVolume.Value.Index];// Array.IndexOf(volumesArray, neighVolume); //idx; //(idx, Array.IndexOf(neigh.Volumes, volume));
             distances[i] = Convert.ToInt32(dist);
         }
 
@@ -262,12 +270,12 @@ CellIndex GetCellIndexFromPoint(Point2D point)
     var zoneLocalX = Mod(point.X, ZONE_SIZE);
     var zoneLocalY = Mod(point.Y, ZONE_SIZE);
 
-    var (squareX, squareLocalX) = int.DivRem((int) zoneLocalX, (int) SQUARE_SIZE);
-    var (squareY, squareLocalY) = int.DivRem((int) zoneLocalY, (int) SQUARE_SIZE);
+    var (squareX, squareLocalX) = int.DivRem((int)zoneLocalX, (int)SQUARE_SIZE);
+    var (squareY, squareLocalY) = int.DivRem((int)zoneLocalY, (int)SQUARE_SIZE);
 
     var cellX = squareLocalX / 16;
     var cellY = squareLocalY / 16;
-    
+
     return new CellIndex(squareX, squareY, cellX, cellY, -1);
 }
 
@@ -330,7 +338,7 @@ bool IsWalkable(Point3D start, Point3D end)
                 var zDiff = float.Abs(end.Z - currentCellZ);
                 return float.Abs(zDiff) <= 15;
             }
-            
+
             next = (end - current).Squared() >= 16 * 16
                 ? next + heading
                 : end;
@@ -384,7 +392,7 @@ readonly record struct Point3D(float X, float Y, float Z)
         new() { X = a.X / b, Y = a.Y / b, Z = a.Z / b };
 
     public float Squared() => X * X + Y * Y + Z * Z;
-    
+
     public Point2D ToPoint2D() => new() { X = X, Y = Y };
 };
 
