@@ -1,5 +1,6 @@
 ﻿
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 
 const int NUM_SQUARES = 120;
 const int NUM_CELLS = 8;
@@ -94,6 +95,19 @@ var nodes = new ConcurrentDictionary<int, Node>();
 var total = indexedVolumes.Count;
 var done = 0;
 
+List<IndexedVolume> GetIndexedVolumesAtCell(CellIndex indexedVolume)
+{
+    var list = new List<IndexedVolume>();
+    int searchIdx = 0;
+    while (indexedVolumes.TryGetValue(indexedVolume with { VolumeIdx = searchIdx }, out var neigh))
+    {
+        list.Add(neigh);
+        searchIdx++;
+    }
+
+    return list;
+}
+
 var volumesArray = indexedVolumes.Values.ToArray();
 Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, idx =>
 //for (int idx = 0; idx < indexedVolumes.Count; idx++)
@@ -133,13 +147,7 @@ Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParalleli
             }
 
             //var neigh = niv.Value;
-            var searchIdx = 0;
-            var neighs = new List<IndexedVolume>();
-            while (indexedVolumes.TryGetValue(niv.Value.Index with { VolumeIdx = searchIdx }, out var neigh))
-            {
-                neighs.Add(neigh);
-                searchIdx++;
-            }
+            var neighs = GetIndexedVolumesAtCell(niv.Value.Index);
             //var neighs = indexedVolumes.Keys.Where(k2 => k2 with { VolumeIdx = -1 } == niv.Value.Index with { VolumeIdx = -1 }).ToArray()
                             //.Select(key => indexedVolumes[key]).ToArray();
 
@@ -246,12 +254,29 @@ Point2D GetCellPosEx(int sx, int sy, int cx, int cy)
     );
 }
 
+// apparently there is no modulo???
+float Mod(float a, float b) => (a % b + b) % b;
+
+CellIndex GetCellIndexFromPoint(Point2D point)
+{
+    var zoneLocalX = Mod(point.X, ZONE_SIZE);
+    var zoneLocalY = Mod(point.Y, ZONE_SIZE);
+
+    var (squareX, squareLocalX) = int.DivRem((int) zoneLocalX, (int) SQUARE_SIZE);
+    var (squareY, squareLocalY) = int.DivRem((int) zoneLocalY, (int) SQUARE_SIZE);
+
+    var cellX = squareLocalX / 16;
+    var cellY = squareLocalY / 16;
+    
+    return new CellIndex(squareX, squareY, cellX, cellY, -1);
+}
+
 int GetCellIndex(int sx, int sy, int cx, int cy)
 {
     return cy + (sy * NUM_CELLS) + (cx * NUM_CELLS * NUM_SQUARES) + (sx * NUM_CELLS * NUM_CELLS * NUM_SQUARES);
 }
 
-Volume? GetCellVolumeAt(IndexedVolume[] cell, int z, bool alsoSearchAbove)
+Volume? GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
 {
     if (z == -16777215)
         return cell.FirstOrDefault().Volume;
@@ -261,16 +286,14 @@ Volume? GetCellVolumeAt(IndexedVolume[] cell, int z, bool alsoSearchAbove)
         : cell.LastOrDefault(idx => idx.Volume.Z <= z).Volume;
 }
 
-Volume? CanGoNeighbourhoodCell(IndexedVolume current, IndexedVolume next, int z)
+Volume? CanGoNeighbourhoodCell(CellIndex current, CellIndex next, int z)
 {
-    var currentCell = current.Index;
-    var nextCell = next.Index;
-
-    if (int.Abs(currentCell.GetX() - nextCell.GetX()) > 1 ||
-        int.Abs(currentCell.GetY() - nextCell.GetY()) > 1)
+    if (int.Abs(current.GetX() - next.GetX()) > 1 ||
+        int.Abs(current.GetY() - next.GetY()) > 1)
         return null;
 
-    var nextVolume = GetCellVolumeAt(new[] { next }, z + 15, false);
+    var allNextVolumes = GetIndexedVolumesAtCell(next);
+    var nextVolume = GetCellVolumeAt(allNextVolumes, z + 15, false);
 
     if (nextVolume == null)
         return null;
@@ -290,43 +313,44 @@ bool IsWalkable(Point3D start, Point3D end)
     var headingSquared = heading.Squared();
 
     if (Math.Abs(headingSquared - 1) < 0.01 || headingSquared > 1)
-        heading /= float.Sqrt(headingSquared) * 15;
+        heading = heading / float.Sqrt(headingSquared) * 15;
 
     var current = start;
     var next = start;
     var currentCellZ = (int)start.Z;
 
     var step = 0;
-    while (current != end)
+    while (true)
     {
         while (true)
         {
             if (step++ > 1000) return false;
-
+            if (current == end)
+            {
+                var zDiff = float.Abs(end.Z - currentCellZ);
+                return float.Abs(zDiff) <= 15;
+            }
+            
             next = (end - current).Squared() >= 16 * 16
                 ? next + heading
                 : end;
 
-            if (current.ToCellIndex() != next.ToCellIndex())
+            if (GetCellIndexFromPoint(current.ToPoint2D()) != GetCellIndexFromPoint(next.ToPoint2D()))
                 break;
 
             current = next;
         }
 
-        indexedVolumes.TryGetValue(current.ToCellIndex(), out var currentVolumes);
-        indexedVolumes.TryGetValue(next.ToCellIndex(), out var nextVolumes);
+        var currentCell = GetCellIndexFromPoint(current.ToPoint2D());
+        var nextCell = GetCellIndexFromPoint(next.ToPoint2D());
 
-        var nextVolume = CanGoNeighbourhoodCell(currentVolumes, nextVolumes, currentCellZ);
-        if (nextVolume == null) break;
+        var nextVolume = CanGoNeighbourhoodCell(currentCell, nextCell, currentCellZ);
+        if (nextVolume == null) return false;
 
         currentCellZ = nextVolume.Value.Z;
         current = next;
     }
-
-    var zDiff = float.Abs(end.Z - currentCellZ);
-    return float.Abs(zDiff) <= 15;
 }
-
 
 readonly record struct IndexedVolume(CellIndex Index, Volume Volume);
 
@@ -353,14 +377,15 @@ readonly record struct Point3D(float X, float Y, float Z)
 
     public static Point3D operator -(Point3D a, Point3D b) => a + (-b);
 
+    public static Point3D operator *(Point3D a, float b) =>
+        new() { X = a.X * b, Y = a.Y * b, Z = a.Z * b };
+
     public static Point3D operator /(Point3D a, float b) =>
         new() { X = a.X / b, Y = a.Y / b, Z = a.Z / b };
 
     public float Squared() => X * X + Y * Y + Z * Z;
-
-    public CellIndex ToCellIndex() => new CellIndex()
-        .AddX((int)(X / 16))
-        .AddY((int)(Y / 16));
+    
+    public Point2D ToPoint2D() => new() { X = X, Y = Y };
 };
 
 readonly record struct Node(float X, float Y, float Z, int[] Neighbors, int[] Distances);
