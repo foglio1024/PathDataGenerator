@@ -9,16 +9,14 @@ class Generator
     public const int NUM_CELLS = 8;
     public const float SQUARE_SIZE = Zone.ZONE_SIZE / (float)NUM_SQUARES;
     public const float CELL_SIZE = SQUARE_SIZE / (float)NUM_CELLS;
-    public static Area _area;
-    Indexer? _indexer;
+    readonly Indexer? _indexer;
     //Zone _zone;
-    List<Zone> _zones;
     ConcurrentDictionary<int, Node>? _nodes;
-    string _areaName;
+    readonly string _areaName;
+    public static Area CurrentArea { get; private set; }
 
     public Generator(string areaName)
     {
-        _zones = new();
 
         _areaName = areaName;
 
@@ -26,15 +24,13 @@ class Generator
         areaDescrTask.Wait();
         var areaDescr = areaDescrTask.Result;
 
-        foreach (var zoneLocation in areaDescr.ZoneLocations)
-        {
-            var zone = LoadZone(Path.Combine(Utils.TOPO_PATH, $"x{zoneLocation.X}y{zoneLocation.Y}.idx"));
-            _zones.Add(zone);
-        }
+        var zones = areaDescr.ZoneLocations.Select(loc =>
+                LoadZone(Path.Combine(Utils.TOPO_PATH, $"x{loc.X}y{loc.Y}.idx")
+            ));
 
-        _area = new Area(_zones.ToArray(), areaDescr.Origin);
+        CurrentArea = new Area(zones.ToArray(), areaDescr.Origin);
 
-        _indexer = new Indexer(_area);
+        _indexer = new Indexer(CurrentArea);
 
     }
 
@@ -52,7 +48,7 @@ class Generator
         {
             Squares = new Square[120, 120],
             Location = new Vector2(zoneX, zoneY),
-            Origin = _area.Origin,
+            Origin = CurrentArea.Origin,
         };
 
         var idxReader = new BinaryReader(new BufferedStream(File.OpenRead(idxFilePath)));
@@ -132,7 +128,7 @@ class Generator
             var volume = v.Volume;
             var neighbors = new int[8];
             var distances = new int[8];
-            var currCellPos = _area.GetCellPos(v.Index).ToVector3() with { Z = volume.Z };
+            var currCellPos = CurrentArea.GetCellPos(v.Index).ToVector3() with { Z = volume.Z };
 
             for (int i = 0; i < 8; i++)
             {
@@ -148,7 +144,7 @@ class Generator
 
                 var neighVolume = GetCellVolumeAt(neighs.ToArray(), volume.Z + 15, false);
 
-                var neighCellPos = _area.GetCellPos(niv.Value.Index).ToVector3();
+                var neighCellPos = CurrentArea.GetCellPos(niv.Value.Index).ToVector3();
 
                 if (neighVolume == null
                 || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Value.Volume.Z }))
@@ -184,19 +180,20 @@ class Generator
 
         using var gdi = new BinaryWriter(new BufferedStream(File.OpenWrite(gdiPath)));
 
-        gdi.Write((int)_area.Start.X);
-        gdi.Write((int)_area.Start.Y);
-        gdi.Write((int)_area.End.X);
-        gdi.Write((int)_area.End.Y);
+        gdi.Write((int)CurrentArea.Start.X);
+        gdi.Write((int)CurrentArea.Start.Y);
+        gdi.Write((int)CurrentArea.End.X);
+        gdi.Write((int)CurrentArea.End.Y);
 
         gdi.Write(_nodes.Count);
 
         // todo: write the rest of the arrays
+
         using var nod = new BinaryWriter(new BufferedStream(File.OpenWrite(Path.ChangeExtension(gdiPath, "nod"))));
-        var offset = (_area.Start - _area.Origin);
+        var offset = (CurrentArea.Start - CurrentArea.Origin);
         foreach (var node in _nodes.Values)
         {
-            nod.Write(node.X + offset.X * Zone.ZONE_SIZE);
+            nod.Write(node.X + offset.X * Zone.ZONE_SIZE); // todo: move this translation before
             nod.Write(node.Y + offset.Y * Zone.ZONE_SIZE);
             nod.Write(node.Z);
 
@@ -250,7 +247,6 @@ class Generator
 
             var currentCell = Utils.GetCellIndexFromPoint(current.ToVector2());
             var nextCell = Utils.GetCellIndexFromPoint(next.ToVector2());
-
             var nextVolume = CanGoNeighbourhoodCell(currentCell, nextCell, currentCellZ);
             if (nextVolume == null) return false;
 

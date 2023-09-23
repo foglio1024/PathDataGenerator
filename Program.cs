@@ -90,12 +90,12 @@ readonly record struct CellIndex(int ZX, int ZY, int SX, int SY, int CX, int CY,
 
     public int GetX()
     {
-        return SX * Generator.NUM_CELLS + CX;
+        return ZX * (Generator.NUM_CELLS * Generator.NUM_SQUARES) + SX * Generator.NUM_CELLS + CX;
     }
 
     public int GetY()
     {
-        return SY * Generator.NUM_CELLS + CY;
+        return ZY * (Generator.NUM_CELLS * Generator.NUM_SQUARES) + SY * Generator.NUM_CELLS + CY;
     }
 }
 
