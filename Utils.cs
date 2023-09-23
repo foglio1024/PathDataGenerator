@@ -7,7 +7,7 @@ namespace PathDataGenerator;
 static class Utils
 {
     public static string DC_PATH = @"E:\TERA_DEV\TERA_GF115\Client\S1Game\S1Data\DataCenter_Final_EUR.dat";
-    public static string TOPO_PATH = @"E:\TERA_DEV\Server\Topology\";
+    public static string TOPO_PATH = @"E:\TERA_DEV\out\";
 
     public static float Mod(float a, float b) => (a % b + b) % b;
 
@@ -49,7 +49,7 @@ static class Utils
 
         var zones = area.Descendants().Where(x => x.Name == "Zone")
             .Select(z => new Vector2(z.Attributes["x"].AsInt32, z.Attributes["y"].AsInt32))
-            .Reverse(); // todo: check this for bi-dim maps
+            .OrderBy(z => z.X).OrderBy(z => z.Y); // todo: check this for bi-dim maps
 
         var origin = new Vector2(area.Parent.Attributes["originZoneX"].AsInt32,
                                  area.Parent.Attributes["originZoneY"].AsInt32);

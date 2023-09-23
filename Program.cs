@@ -4,7 +4,7 @@ using System.Drawing;
 using System.Numerics;
 
 
-var generator = new Generator("Rucmia_P");
+var generator = new Generator("EX_SSC_A_CE_P");
 
 generator.GenerateNodes();
 
