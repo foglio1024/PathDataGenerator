@@ -166,7 +166,7 @@ class Generator
             nodes[idx] = node;
 
             Interlocked.Increment(ref done);
-            if (done % 1000 == 0) Console.WriteLine($"{done}/{total} {done / (float)total:P1}");
+            if (done % 1000 == 0) Console.Write($"\r{done}/{total} {done / (float)total:P1}");
         }
         );
 
@@ -178,6 +178,8 @@ class Generator
     {
         var gdiPath = Path.Combine(outputFolder, $"pathdata_{_areaName}.gdi");
 
+        Console.WriteLine($"Saving navdata to {gdiPath}");
+
         using var gdi = new BinaryWriter(new BufferedStream(File.OpenWrite(gdiPath)));
 
         gdi.Write((int)CurrentArea.Start.X);
@@ -188,6 +190,43 @@ class Generator
         gdi.Write(_nodes.Count);
 
         // todo: write the rest of the arrays
+
+        var nodesIndices = new List<int>();
+
+        for (int zx = 0; zx < CurrentArea.Size.Width; zx++)
+        {
+            for (int zy = 0; zy < CurrentArea.Size.Height; zy++)
+            {
+                for (int sx = 0; sx < NUM_SQUARES; sx++)
+                {
+                    for (int sy = 0; sy < NUM_SQUARES; sy++)
+                    {
+                        var nodesInSquare = 0;
+                        for (int cx = 0; cx < NUM_CELLS; cx++)
+                        {
+                            for (int cy = 0; cy < NUM_CELLS; cy++)
+                            {
+                                var vols = GetIndexedVolumesAtCell(new CellIndex(zx, zy, sx, sy, cx, cy, -1));
+                                nodesInSquare += vols.Count;
+                                foreach (var vol in vols)
+                                {
+                                    nodesIndices.Add(_indexer.VolumeIndices[vol.Index]);
+                                }
+                            }
+                        }
+                        gdi.Write(nodesInSquare);
+                        Console.Write($"\rWritten square({sx}, {sy})");
+                    }
+                }
+            }
+        }
+        Console.WriteLine();
+        foreach (var idx in nodesIndices)
+        {
+            gdi.Write(idx);
+            Console.Write($"\rWritten idx {idx}");
+        }
+
 
         using var nod = new BinaryWriter(new BufferedStream(File.OpenWrite(Path.ChangeExtension(gdiPath, "nod"))));
         var offset = (CurrentArea.Start - CurrentArea.Origin);
