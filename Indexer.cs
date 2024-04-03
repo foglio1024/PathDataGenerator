@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Numerics;
 
 namespace PathDataGenerator;
@@ -16,6 +16,17 @@ class Indexer
         {
             for (int zy = 0; zy < area.Size.Height; zy++)
             {
+                var absx = area.Start.X + zx;
+                var absy = area.Start.Y + zy;
+                Console.WriteLine($"Searching zone @ ({absx}, {absy})");
+                var found = area.Zones.Any(zn => zn.Location.X == absx && zn.Location.Y == absy);
+
+                if(!found)
+                {
+                    Console.WriteLine("!! Zone not found !!");
+                    continue;
+                }                
+
                 for (int sx = 0; sx < Generator.NUM_SQUARES; sx++)
                 {
                     for (int sy = 0; sy < Generator.NUM_SQUARES; sy++)
