@@ -1,4 +1,4 @@
-﻿
+
 using PathDataGenerator;
 using System.Drawing;
 using System.Numerics;
@@ -14,8 +14,7 @@ readonly record struct IndexedVolume(CellIndex Index, Volume Volume);
 
 readonly record struct Zone(Square[,] Squares, Vector2 Location, Vector2 Origin)
 {
-    public Vector2 RelativeLocation => Location - Origin;
-    public const float ZONE_SIZE = 15360;//614.4f;
+    public const float UNIT_SIZE = 15360;//614.4f;
 }
 
 readonly record struct Square(Cell[,] Cells);
@@ -30,7 +29,7 @@ readonly record struct CellIndex(int ZX, int ZY, int SX, int SY, int CX, int CY,
 {
     public CellIndex AddX(int x)
     {
-        if (CX + x >= 8)
+        if (CX + x >= Generator.NUM_CELLS)
         {
             if (SX + 1 >= Generator.NUM_SQUARES)
             {
@@ -38,7 +37,6 @@ readonly record struct CellIndex(int ZX, int ZY, int SX, int SY, int CX, int CY,
             }
             else
             {
-
                 return this with { SX = SX + 1, CX = 0 };
             }
 
@@ -90,84 +88,11 @@ readonly record struct CellIndex(int ZX, int ZY, int SX, int SY, int CX, int CY,
 
     public int GetX()
     {
-        return ZX * (Generator.NUM_CELLS * Generator.NUM_SQUARES) + SX * Generator.NUM_CELLS + CX;
+        return ZX * Generator.CELLS_IN_ZONE + SX * Generator.NUM_CELLS + CX;
     }
 
     public int GetY()
     {
-        return ZY * (Generator.NUM_CELLS * Generator.NUM_SQUARES) + SY * Generator.NUM_CELLS + CY;
+        return ZY * Generator.CELLS_IN_ZONE + SY * Generator.NUM_CELLS + CY;
     }
-}
-
-readonly record struct Area(Zone[] Zones, Vector2 Origin)
-{
-    public Vector2 Start
-    {
-        get
-        {
-            var minx = float.MaxValue;
-            var miny = float.MaxValue;
-
-            foreach (var z in Zones)
-            {
-                if (z.Location.X < minx) minx = z.Location.X;
-                if (z.Location.Y < miny) miny = z.Location.Y;
-            }
-
-            return new Vector2(minx, miny);
-        }
-    }
-
-    public Vector2 End
-    {
-        get
-        {
-            var maxx = float.MinValue;
-            var maxy = float.MinValue;
-
-            foreach (var z in Zones)
-            {
-                if (z.Location.X > maxx) maxx = z.Location.X;
-                if (z.Location.Y > maxy) maxy = z.Location.Y;
-            }
-
-            return new Vector2(maxx, maxy);
-        }
-    }
-
-    public Size Size => new((int)Math.Abs(End.X - Start.X) + 1, (int)Math.Abs(End.Y - Start.Y) + 1);
-
-
-    internal Vector2 GetZonePos(CellIndex index)
-    {
-        // todo: consider zone
-        return new Vector2(
-            index.ZX * Zone.ZONE_SIZE,
-            index.ZY * Zone.ZONE_SIZE
-        );
-    }
-
-    internal Vector2 GetSquarePos(CellIndex index)
-    {
-        var zonePos = GetZonePos(index);
-        return new Vector2(
-            index.SX * Generator.SQUARE_SIZE + /*zone.RelativeLocation*/zonePos.X /** Zone.ZONE_SIZE*/,
-            index.SY * Generator.SQUARE_SIZE + /*zone.RelativeLocation*/zonePos.Y /** Zone.ZONE_SIZE*/
-        );
-    }
-
-    internal Vector2 GetCellPos(CellIndex index)
-    {
-        var squarePosition = GetSquarePos(index);
-        var cellLocalPosition = new Vector2(
-                (index.CX + 0.5f) * Generator.CELL_SIZE,
-                (index.CY + 0.5f) * Generator.CELL_SIZE
-            );
-
-        return new Vector2(
-                cellLocalPosition.X + squarePosition.X,
-                cellLocalPosition.Y + squarePosition.Y
-        );
-    }
-
 }

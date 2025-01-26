@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Numerics;
 
 namespace PathDataGenerator;
@@ -7,7 +7,8 @@ class Generator
 {
     public const int NUM_SQUARES = 120;
     public const int NUM_CELLS = 8;
-    public const float SQUARE_SIZE = Zone.ZONE_SIZE / (float)NUM_SQUARES;
+    public const int CELLS_IN_ZONE = NUM_SQUARES * NUM_CELLS;
+    public const float SQUARE_SIZE = Zone.UNIT_SIZE / (float)NUM_SQUARES;
     public const float CELL_SIZE = SQUARE_SIZE / (float)NUM_CELLS;
     readonly Indexer? _indexer;
     //Zone _zone;
@@ -60,7 +61,7 @@ class Generator
             {
                 var square = zone.Squares[sx, sy] = new Square
                 {
-                    Cells = new Cell[8, 8],
+                    Cells = new Cell[NUM_CELLS, NUM_CELLS],
                 };
 
                 _ = idxReader.ReadInt32();
@@ -232,8 +233,8 @@ class Generator
         var offset = (CurrentArea.Start - CurrentArea.Origin);
         foreach (var node in _nodes.Values)
         {
-            nod.Write(node.X + offset.X * Zone.ZONE_SIZE); // todo: move this translation before
-            nod.Write(node.Y + offset.Y * Zone.ZONE_SIZE);
+            nod.Write(node.X + offset.X * Zone.UNIT_SIZE); // todo: move this translation before
+            nod.Write(node.Y + offset.Y * Zone.UNIT_SIZE);
             nod.Write(node.Z);
 
             foreach (var nidx in node.Neighbors)

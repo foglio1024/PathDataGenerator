@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Numerics;
 using Vezel.Novadrop.Data;
 
@@ -20,17 +20,17 @@ static class Utils
 
     internal static CellIndex GetCellIndexFromPoint(Vector2 point)
     {
-        var zx = point.X / Zone.ZONE_SIZE;
-        var zy = point.Y / Zone.ZONE_SIZE;
+        var zx = point.X / Zone.UNIT_SIZE;
+        var zy = point.Y / Zone.UNIT_SIZE;
 
-        var zoneLocalX = Utils.Mod(point.X, Zone.ZONE_SIZE);
-        var zoneLocalY = Utils.Mod(point.Y, Zone.ZONE_SIZE);
+        var zoneLocalX = Utils.Mod(point.X, Zone.UNIT_SIZE);
+        var zoneLocalY = Utils.Mod(point.Y, Zone.UNIT_SIZE);
 
         var (squareX, squareLocalX) = int.DivRem((int)zoneLocalX, (int)Generator.SQUARE_SIZE);
         var (squareY, squareLocalY) = int.DivRem((int)zoneLocalY, (int)Generator.SQUARE_SIZE);
 
-        var cellX = squareLocalX / 16;
-        var cellY = squareLocalY / 16;
+        var cellX = squareLocalX / ((int)Generator.CELL_SIZE * 2);
+        var cellY = squareLocalY / ((int)Generator.CELL_SIZE * 2);
 
         return new CellIndex((int)zx, (int)zy, squareX, squareY, cellX, cellY, -1);
     }
