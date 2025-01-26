@@ -1,13 +1,12 @@
-using System.Collections.ObjectModel;
-using System.Numerics;
+﻿using System.Collections.ObjectModel;
 
 namespace PathDataGenerator;
 
 class Indexer
 {
-    public readonly ReadOnlyDictionary<CellIndex, IndexedVolume> IndexedVolumes;
-    public readonly ReadOnlyCollection<IndexedVolume> VolumesArray;
-    public readonly ReadOnlyDictionary<CellIndex, int> VolumeIndices;
+    public readonly ReadOnlyDictionary<CellIndex, IndexedVolume> CellIndexToIndexedVolume;
+    public readonly ReadOnlyCollection<IndexedVolume> IndexedVolumes;
+    public readonly ReadOnlyDictionary<CellIndex, int> CellIndexToVolumeIndex;
 
     public Indexer(Area area)
     {
@@ -21,50 +20,65 @@ class Indexer
                 Console.WriteLine($"Searching zone @ ({absx}, {absy})");
                 var found = area.Zones.Any(zn => zn.Location.X == absx && zn.Location.Y == absy);
 
-                if(!found)
+                if (!found)
                 {
                     Console.WriteLine("!! Zone not found !!");
                     continue;
-                }                
+                }
 
-                for (int sx = 0; sx < Generator.NUM_SQUARES; sx++)
+                try
                 {
-                    for (int sy = 0; sy < Generator.NUM_SQUARES; sy++)
+                    for (int sx = 0; sx < Generator.NUM_SQUARES; sx++)
                     {
-                        for (int cx = 0; cx < Generator.NUM_CELLS; cx++)
+                        for (int sy = 0; sy < Generator.NUM_SQUARES; sy++)
                         {
-                            for (int cy = 0; cy < Generator.NUM_CELLS; cy++)
+                            for (int cx = 0; cx < Generator.NUM_CELLS; cx++)
                             {
-                                var vols = area.Zones[zx + zy * area.Size.Width]
-                                               .Squares[sx, sy]
-                                               .Cells[cx, cy]
-                                               .Volumes;
-
-                                for (int vidx = 0; vidx < vols.Length; vidx++)
+                                for (int cy = 0; cy < Generator.NUM_CELLS; cy++)
                                 {
-                                    var cidx = new CellIndex(zx, zy, sx, sy, cx, cy, vidx);
-                                    tmpDict[cidx] = new IndexedVolume(cidx, vols[vidx]);
+                                    var vols = area.Zones.FirstOrDefault(z => z.Location.X == absx && z.Location.Y == absy)//[zx + zy * area.Size.Width]
+                                                   .Squares[sx, sy]
+                                                   .Cells[cx, cy]
+                                                   .Volumes;
+
+                                    for (int vidx = 0; vidx < vols.Length; vidx++)
+                                    {
+                                        var cidx = new CellIndex(zx, zy, sx, sy, cx, cy, vidx);
+                                        tmpDict[cidx] = new IndexedVolume(cidx, vols[vidx]);
+                                    }
                                 }
                             }
                         }
                     }
+
+                }
+                catch
+                {
                 }
             }
         }
 
-        IndexedVolumes = new ReadOnlyDictionary<CellIndex, IndexedVolume>(tmpDict);
-        VolumesArray = IndexedVolumes.Values.ToArray().AsReadOnly();
+        CellIndexToIndexedVolume = new ReadOnlyDictionary<CellIndex, IndexedVolume>(tmpDict);
+        IndexedVolumes = CellIndexToIndexedVolume.Values.ToArray().AsReadOnly();
 
-        var tmpDict2 = new Dictionary<CellIndex, int>();
+        CellIndexToVolumeIndex = IndexedVolumes
+            .Select((cell, i) => (cell.Index, i))
+            .ToDictionary()
+            .AsReadOnly();
 
-        for (int i = 0; i < VolumesArray.Count; i++)
-        {
-            var cell = VolumesArray[i];
-            tmpDict2[cell.Index] = i;
-        }
-
-        VolumeIndices = new ReadOnlyDictionary<CellIndex, int>(tmpDict2);
     }
 
+    public List<IndexedVolume> GetIndexedVolumesAtCell(CellIndex indexedVolume)
+    {
+        var list = new List<IndexedVolume>();
+        int searchIdx = 0;
 
+        while (CellIndexToIndexedVolume.TryGetValue(indexedVolume with { VolumeIdx = searchIdx }, out var neigh))
+        {
+            list.Add(neigh);
+            searchIdx++;
+        }
+
+        return list;
+    }
 }

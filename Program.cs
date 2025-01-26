@@ -25,7 +25,7 @@ readonly record struct Volume(short Z, ushort Height);
 
 readonly record struct Node(float X, float Y, float Z, int[] Neighbors, int[] Distances);
 
-readonly record struct CellIndex(int ZX, int ZY, int SX, int SY, int CX, int CY, int VolumeIdx)
+readonly record struct CellIndex(int ZX = -1, int ZY = -1, int SX = -1, int SY = -1, int CX = -1, int CY = -1, int VolumeIdx = -1)
 {
     public CellIndex AddX(int x)
     {

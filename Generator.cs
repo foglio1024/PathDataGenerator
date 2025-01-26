@@ -10,15 +10,15 @@ class Generator
     public const int CELLS_IN_ZONE = NUM_SQUARES * NUM_CELLS;
     public const float SQUARE_SIZE = Zone.UNIT_SIZE / (float)NUM_SQUARES;
     public const float CELL_SIZE = SQUARE_SIZE / (float)NUM_CELLS;
-    readonly Indexer? _indexer;
+
+    private readonly Indexer _indexer;
     //Zone _zone;
-    ConcurrentDictionary<int, Node>? _nodes;
-    readonly string _areaName;
+    private ConcurrentDictionary<int, Node>? _nodes;
+    private readonly string _areaName;
     public static Area CurrentArea { get; private set; }
 
     public Generator(string areaName)
     {
-
         _areaName = areaName;
 
         var areaDescrTask = Utils.GetAreaDescription(areaName);
@@ -32,7 +32,6 @@ class Generator
         CurrentArea = new Area(zones.ToArray(), areaDescr.Origin);
 
         _indexer = new Indexer(CurrentArea);
-
     }
 
     Zone LoadZone(string idxFilePath)
@@ -90,41 +89,45 @@ class Generator
             }
         }
 
-        Console.WriteLine("Zone loaded");
+        Console.WriteLine($"Loaded zone ({zoneX},{zoneY}) from {idxFilePath}");
 
         return zone;
     }
 
     public ConcurrentDictionary<int, Node> GenerateNodes()
     {
-        var indexedVolumes = _indexer.IndexedVolumes;
-        var volumesArray = _indexer.VolumesArray;
-        var volumeIndices = _indexer.VolumeIndices;
+        var total = _indexer.CellIndexToIndexedVolume.Count;
 
-        var total = indexedVolumes.Count;
+        Console.WriteLine($"Indexed cells: {total}");
+
         var done = 0;
 
         var nodes = new ConcurrentDictionary<int, Node>();
-        Parallel.For(0, indexedVolumes.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, idx =>
+        Parallel.For(0, total, new ParallelOptions { MaxDegreeOfParallelism = 16 }, idx =>
         {
-            var v = volumesArray[idx];
+            var v = _indexer.IndexedVolumes[idx];
+
+            if (v.Index.CX % 2 == 1 || v.Index.CY % 2 == 1)
+                return;
+
+            var step = 1;
 
             var neighbourCells = new[]
             {
-                v.Index.AddX(-1),
-                v.Index.AddX(-1).AddY(1),
-                v.Index.AddY(1),
-                v.Index.AddY(1).AddX(1),
-                v.Index.AddX(1),
-                v.Index.AddY(-1).AddX(1),
-                v.Index.AddY(-1),
-                v.Index.AddY(-1).AddX(-1),
+                v.Index.AddX(-step),
+                v.Index.AddX(-step).AddY(step),
+                v.Index.AddY(step),
+                v.Index.AddY(step).AddX(step),
+                v.Index.AddX(step),
+                v.Index.AddY(-step).AddX(step),
+                v.Index.AddY(-step),
+                v.Index.AddY(-step).AddX(-step),
             };
 
             var neighbourIndexedVolumes =
-                neighbourCells.Select(cell => indexedVolumes.TryGetValue(cell, out var neigh)
+                neighbourCells.Select(cell => _indexer.CellIndexToIndexedVolume.TryGetValue(cell, out var neigh)
                     ? neigh
-                    : (IndexedVolume?)null).ToArray();
+                    : default).ToArray();
 
             var volume = v.Volume;
             var neighbors = new int[8];
@@ -134,32 +137,34 @@ class Generator
             for (int i = 0; i < 8; i++)
             {
                 var niv = neighbourIndexedVolumes[i];
-                if (niv == null)
+                if (niv == default)
                 {
                     neighbors[i] = -1;
                     distances[i] = int.MaxValue;
                     continue;
                 }
 
-                var neighs = GetIndexedVolumesAtCell(niv.Value.Index);
+                var neighs = _indexer.GetIndexedVolumesAtCell(niv.Index);
 
                 var neighVolume = GetCellVolumeAt(neighs.ToArray(), volume.Z + 15, false);
 
-                var neighCellPos = CurrentArea.GetCellPos(niv.Value.Index).ToVector3();
+                var neighCellPos = CurrentArea.GetCellPos(niv.Index).ToVector3();
 
-                if (neighVolume == null
-                || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Value.Volume.Z }))
+                if (neighVolume == default
+                || !IsWalkable(currCellPos, neighCellPos with { Z = neighVolume.Volume.Z })
+                // || (neighVolume.Index.CX % 2 == 1 || neighVolume.Index.CY % 2 == 1)
+                )
                 {
                     neighbors[i] = -1;
                     distances[i] = int.MaxValue;
                     continue;
                 }
 
-                neighCellPos = neighCellPos with { Z = neighVolume.Value.Volume.Z };
+                neighCellPos = neighCellPos with { Z = neighVolume.Volume.Z };
 
                 var dist = Vector3.Distance(neighCellPos, currCellPos);
 
-                neighbors[i] = volumeIndices[neighVolume.Value.Index];
+                neighbors[i] = _indexer.CellIndexToVolumeIndex[neighVolume.Index];
                 distances[i] = Convert.ToInt32(dist);
             }
 
@@ -167,7 +172,7 @@ class Generator
             nodes[idx] = node;
 
             Interlocked.Increment(ref done);
-            if (done % 1000 == 0) Console.Write($"\r{done}/{total} {done / (float)total:P1}");
+            if (done % 1000 == 0) Console.Write($"\rGenerating... {done / (float)total:P1}");
         }
         );
 
@@ -179,16 +184,18 @@ class Generator
     {
         var gdiPath = Path.Combine(outputFolder, $"pathdata_{_areaName}.gdi");
 
-        Console.WriteLine($"Saving navdata to {gdiPath}");
+        Console.WriteLine($"\nSaving navdata to {gdiPath}");
 
-        using var gdi = new BinaryWriter(new BufferedStream(File.OpenWrite(gdiPath)));
+        using var gdi = new BinaryWriter(new BufferedStream(File.Create(gdiPath)));
 
         gdi.Write((int)CurrentArea.Start.X);
         gdi.Write((int)CurrentArea.Start.Y);
         gdi.Write((int)CurrentArea.End.X);
         gdi.Write((int)CurrentArea.End.Y);
 
-        gdi.Write(_nodes.Count);
+        if (_nodes == null) throw new InvalidOperationException("Nodes must be generated before calling WriteNavdata");
+
+        var nodesInSquareList = new List<int>();
 
         // todo: write the rest of the arrays
 
@@ -207,31 +214,50 @@ class Generator
                         {
                             for (int cy = 0; cy < NUM_CELLS; cy++)
                             {
-                                var vols = GetIndexedVolumesAtCell(new CellIndex(zx, zy, sx, sy, cx, cy, -1));
-                                nodesInSquare += vols.Count;
+                                //if (cx % 2 == 1 || cy % 2 == 1) continue;
+                                var cellIdx = new CellIndex(zx, zy, sx, sy, cx, cy, -1);
+                                var vols = _indexer.GetIndexedVolumesAtCell(cellIdx);
+
                                 foreach (var vol in vols)
                                 {
-                                    nodesIndices.Add(_indexer.VolumeIndices[vol.Index]);
+                                    var nodeIdx = _indexer.CellIndexToVolumeIndex[vol.Index];
+
+                                    if (!_nodes.TryGetValue(nodeIdx, out var node))
+                                        continue;
+
+                                    nodesIndices.Add(nodeIdx);
+                                    nodesInSquare++;
                                 }
                             }
                         }
-                        gdi.Write(nodesInSquare);
+                        //gdi.Write(nodesInSquare);
+                        nodesInSquareList.Add(nodesInSquare);
                         Console.Write($"\rWritten square({sx}, {sy})");
                     }
                 }
             }
         }
-        Console.WriteLine();
-        foreach (var idx in nodesIndices)
+
+        //gdi.Write(_nodes.Count);
+        gdi.Write(nodesIndices.Count);
+        foreach (var i in nodesInSquareList)
         {
-            gdi.Write(idx);
-            Console.Write($"\rWritten idx {idx}");
+            gdi.Write(i);
         }
 
+        Console.WriteLine();
+        for (int i = 0; i < nodesIndices.Count; i++)
+        {
+            int idx = nodesIndices[i];
+            gdi.Write(idx);
+            if (i % 1000 == 0 || i == nodesIndices.Count - 1) Console.Write($"\rWritten idx {i / (float)nodesIndices.Count:P1}");
+        }
+        Console.WriteLine();
 
-        using var nod = new BinaryWriter(new BufferedStream(File.OpenWrite(Path.ChangeExtension(gdiPath, "nod"))));
+        using var nod = new BinaryWriter(new BufferedStream(File.Create(Path.ChangeExtension(gdiPath, "nod"))));
         var offset = (CurrentArea.Start - CurrentArea.Origin);
-        foreach (var node in _nodes.Values)
+        //foreach (var node in _nodes.Values)
+        foreach (var node in nodesIndices.Select(i => _nodes[i]))
         {
             nod.Write(node.X + offset.X * Zone.UNIT_SIZE); // todo: move this translation before
             nod.Write(node.Y + offset.Y * Zone.UNIT_SIZE);
@@ -301,36 +327,22 @@ class Generator
             int.Abs(current.GetY() - next.GetY()) > 1)
             return null;
 
-        var allNextVolumes = GetIndexedVolumesAtCell(next);
+        var allNextVolumes = _indexer.GetIndexedVolumesAtCell(next);
         var nextVolume = GetCellVolumeAt(allNextVolumes, z + 15, false);
 
-        if (nextVolume == null)
+        if (nextVolume == default)
             return null;
 
-        if (z + 50 >= nextVolume.Value.Volume.Z + nextVolume.Value.Volume.Height)
+        if (z + 50 >= nextVolume.Volume.Z + nextVolume.Volume.Height)
             return null;
 
-        if (z > nextVolume.Value.Volume.Z + 50)
+        if (z > nextVolume.Volume.Z + 50)
             return null;
 
-        return nextVolume.Value.Volume;
+        return nextVolume.Volume;
     }
 
-    List<IndexedVolume> GetIndexedVolumesAtCell(CellIndex indexedVolume)
-    {
-        var list = new List<IndexedVolume>();
-        int searchIdx = 0;
-
-        while (_indexer.IndexedVolumes.TryGetValue(indexedVolume with { VolumeIdx = searchIdx }, out var neigh))
-        {
-            list.Add(neigh);
-            searchIdx++;
-        }
-
-        return list;
-    }
-
-    static IndexedVolume? GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
+    static IndexedVolume GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
     {
         if (z == -16777215)
             return cell.FirstOrDefault();
@@ -339,4 +351,5 @@ class Generator
             ? cell.MinBy(idx => int.Abs(idx.Volume.Z - z))
             : cell.LastOrDefault(idx => idx.Volume.Z <= z);
     }
+
 }

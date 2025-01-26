@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Numerics;
 using Vezel.Novadrop.Data;
 
@@ -44,15 +44,16 @@ static class Utils
             );
 
         var area = dc.Children.Single(x => x.Name == "AreaList")
-            .Descendants().FirstOrDefault(x => x.Name == "Area"
+            .Descendants().First(x => x.Name == "Area"
                 && x.Attributes["name"].AsString == areaName);
 
         var zones = area.Descendants().Where(x => x.Name == "Zone")
             .Select(z => new Vector2(z.Attributes["x"].AsInt32, z.Attributes["y"].AsInt32))
-            .OrderBy(z => z.X).OrderBy(z => z.Y);
+            ;
 
-        var origin = new Vector2(area.Parent.Attributes["originZoneX"].AsInt32,
-                                 area.Parent.Attributes["originZoneY"].AsInt32);
+
+        var origin = new Vector2(area.Parent!.Attributes["originZoneX"].AsInt32,
+                                 area.Parent!.Attributes["originZoneY"].AsInt32);
 
         return new AreaDescription(origin, zones.ToArray().AsReadOnly());
     }
