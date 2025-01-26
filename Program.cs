@@ -1,15 +1,21 @@
-
+﻿
+using System.Diagnostics;
 using PathDataGenerator;
-using System.Drawing;
 using System.Numerics;
 
-
-var generator = new Generator("EX_SSC_A_CE_P");
-
+var sw = Stopwatch.StartNew();
+var generator = new Generator("ATW_P");
+Console.WriteLine("Created generator");
 generator.GenerateNodes();
+Console.WriteLine("Generated nodes");
 
-generator.WriteNavdata("E:/TERA_DEV/out");
+//generator.Simplify();
 
+generator.WriteNavdata("E:/TERA_DEV/out/");
+
+sw.Stop();
+
+Console.WriteLine($"Took {sw.Elapsed}");
 readonly record struct IndexedVolume(CellIndex Index, Volume Volume);
 
 readonly record struct Zone(Square[,] Squares, Vector2 Location, Vector2 Origin)
