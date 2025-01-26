@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Numerics;
 
 namespace PathDataGenerator;
@@ -178,6 +178,93 @@ class Generator
 
         _nodes = nodes;
         return nodes;
+    }
+
+    /// <summary>
+    /// Removes all nodes in odd cells and their connections.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"></exception>
+    public void Simplify()
+    {
+        if (_nodes == null) throw new InvalidOperationException("Nodes must be generated before calling Simplify");
+
+        var toRemove = new List<int>();
+
+        // remove all nodes in odd cells
+        for (int zx = 0; zx < CurrentArea.Size.Width; zx++)
+        {
+            for (int zy = 0; zy < CurrentArea.Size.Height; zy++)
+            {
+                for (int sx = 0; sx < NUM_SQUARES; sx++)
+                {
+                    for (int sy = 0; sy < NUM_SQUARES; sy++)
+                    {
+                        for (int cx = 0; cx < NUM_CELLS; cx++)
+                        {
+                            for (int cy = 0; cy < NUM_CELLS; cy++)
+                            {
+                                if (cx % 2 == 1 || cy % 2 == 1)
+                                {
+                                    // add index to toRemove
+                                    var vols = _indexer.GetIndexedVolumesAtCell(new CellIndex(zx, zy, sx, sy, cx, cy, -1));
+                                    foreach (var vol in vols)
+                                    {
+                                        var index = _indexer.CellIndexToVolumeIndex[vol.Index];
+                                        toRemove.Add(index);
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        foreach (var idx in toRemove)
+        {
+            _nodes.TryRemove(idx, out _);
+        }
+
+        // remove pointers to removed nodes
+        Parallel.For(0, CurrentArea.Size.Width, zx =>
+        //for (int zx = 0; zx < CurrentArea.Size.Width; zx++)
+        {
+            for (int zy = 0; zy < CurrentArea.Size.Height; zy++)
+            {
+                for (int sx = 0; sx < NUM_SQUARES; sx++)
+                {
+                    for (int sy = 0; sy < NUM_SQUARES; sy++)
+                    {
+                        //Parallel.For(0, NUM_CELLS, cx =>
+                        for (int cx = 0; cx < NUM_CELLS; cx++)
+                        {
+                            for (int cy = 0; cy < NUM_CELLS; cy++)
+                            {
+                                //if (cx % 2 == 1 || cy % 2 == 1) continue;
+
+                                var vols = _indexer.GetIndexedVolumesAtCell(new CellIndex(zx, zy, sx, sy, cx, cy, -1));
+                                foreach (var vol in vols)
+                                {
+                                    var index = _indexer.CellIndexToVolumeIndex[vol.Index];
+                                    if (!_nodes.TryGetValue(index, out var node)) continue;
+                                    for (var i = 0; i < 8; i++)
+                                    {
+                                        var nodeNeighbor = node.Neighbors[i];
+                                        if (!toRemove.Contains(nodeNeighbor)) continue;
+
+                                        node.Neighbors[i] = -1;
+                                        node.Distances[i] = int.MaxValue;
+                                    }
+                                }
+                            }
+                        }
+                        //);
+                        Console.WriteLine($"Done square {sx},{sy} @ {zx},{zy}");
+                    }
+                }
+            }
+        }
+        );
     }
 
     public void WriteNavdata(string outputFolder)
