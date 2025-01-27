@@ -1,0 +1,1 @@
+﻿internal readonly record struct Square(Cell[,] Cells);

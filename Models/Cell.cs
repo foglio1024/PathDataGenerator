@@ -1,0 +1,1 @@
+﻿internal readonly record struct Cell(Volume[] Volumes);

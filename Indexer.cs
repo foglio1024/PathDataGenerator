@@ -2,11 +2,12 @@
 
 namespace PathDataGenerator;
 
-class Indexer
+internal class Indexer
 {
     public readonly ReadOnlyDictionary<CellIndex, IndexedVolume> CellIndexToIndexedVolume;
     public readonly ReadOnlyCollection<IndexedVolume> IndexedVolumes;
-    public readonly ReadOnlyDictionary<CellIndex, int> CellIndexToVolumeIndex;
+    public readonly ReadOnlyDictionary<CellIndex, int> CellIndexToNodeIndex;
+    public readonly ReadOnlyDictionary<int, CellIndex> NodeIndexToCellIndex;
 
     public Indexer(Area area)
     {
@@ -28,13 +29,13 @@ class Indexer
 
                 try
                 {
-                    for (int sx = 0; sx < Generator.NUM_SQUARES; sx++)
+                    for (int sx = 0; sx < Utils.NUM_SQUARES; sx++)
                     {
-                        for (int sy = 0; sy < Generator.NUM_SQUARES; sy++)
+                        for (int sy = 0; sy < Utils.NUM_SQUARES; sy++)
                         {
-                            for (int cx = 0; cx < Generator.NUM_CELLS; cx++)
+                            for (int cx = 0; cx < Utils.NUM_CELLS; cx++)
                             {
-                                for (int cy = 0; cy < Generator.NUM_CELLS; cy++)
+                                for (int cy = 0; cy < Utils.NUM_CELLS; cy++)
                                 {
                                     var vols = area.Zones.FirstOrDefault(z => z.Location.X == absx && z.Location.Y == absy)//[zx + zy * area.Size.Width]
                                                    .Squares[sx, sy]
@@ -61,11 +62,15 @@ class Indexer
         CellIndexToIndexedVolume = new ReadOnlyDictionary<CellIndex, IndexedVolume>(tmpDict);
         IndexedVolumes = CellIndexToIndexedVolume.Values.ToArray().AsReadOnly();
 
-        CellIndexToVolumeIndex = IndexedVolumes
+        CellIndexToNodeIndex = IndexedVolumes
             .Select((cell, i) => (cell.Index, i))
             .ToDictionary()
             .AsReadOnly();
 
+        NodeIndexToCellIndex = CellIndexToNodeIndex
+            .Select((kv) => (kv.Value, kv.Key))
+            .ToDictionary()
+            .AsReadOnly();
     }
 
     public List<IndexedVolume> GetIndexedVolumesAtCell(CellIndex indexedVolume)

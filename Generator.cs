@@ -3,96 +3,24 @@ using System.Numerics;
 
 namespace PathDataGenerator;
 
-class Generator
+internal class Generator
 {
-    public const int NUM_SQUARES = 120;
-    public const int NUM_CELLS = 8;
-    public const int CELLS_IN_ZONE = NUM_SQUARES * NUM_CELLS;
-    public const float SQUARE_SIZE = Zone.UNIT_SIZE / (float)NUM_SQUARES;
-    public const float CELL_SIZE = SQUARE_SIZE / (float)NUM_CELLS;
 
     private readonly Indexer _indexer;
-    //Zone _zone;
     private ConcurrentDictionary<int, Node>? _nodes;
     private readonly string _areaName;
+
     public static Area CurrentArea { get; private set; }
 
     public Generator(string areaName)
     {
         _areaName = areaName;
 
-        var areaDescrTask = Utils.GetAreaDescription(areaName);
-        areaDescrTask.Wait();
-        var areaDescr = areaDescrTask.Result;
-
-        var zones = areaDescr.ZoneLocations.Select(loc =>
-                LoadZone(Path.Combine(Utils.TOPO_PATH, $"x{loc.X}y{loc.Y}.idx")
-            ));
-
-        CurrentArea = new Area(zones.ToArray(), areaDescr.Origin);
+        CurrentArea = Area.Create(areaName);
 
         _indexer = new Indexer(CurrentArea);
     }
 
-    Zone LoadZone(string idxFilePath)
-    {
-        var zoneXY = Path.GetFileNameWithoutExtension(idxFilePath)
-                         .Replace("x", "").Replace("y", " ").Split();
-
-        int zoneX = int.Parse(zoneXY[0]);
-        int zoneY = int.Parse(zoneXY[1]);
-
-        var geoFilePath = Path.ChangeExtension(idxFilePath, "geo");
-
-        var zone = new Zone
-        {
-            Squares = new Square[120, 120],
-            Location = new Vector2(zoneX, zoneY),
-            Origin = CurrentArea.Origin,
-        };
-
-        var idxReader = new BinaryReader(new BufferedStream(File.OpenRead(idxFilePath)));
-        var geoReader = new BinaryReader(new BufferedStream(File.OpenRead(geoFilePath)));
-
-        for (var sx = 0; sx < zone.Squares.GetLength(0); sx++)
-        {
-            for (var sy = 0; sy < zone.Squares.GetLength(1); sy++)
-            {
-                var square = zone.Squares[sx, sy] = new Square
-                {
-                    Cells = new Cell[NUM_CELLS, NUM_CELLS],
-                };
-
-                _ = idxReader.ReadInt32();
-
-                for (var cx = 0; cx < square.Cells.GetLength(0); cx++)
-                {
-                    for (var cy = 0; cy < square.Cells.GetLength(1); cy++)
-                    {
-                        var cell = square.Cells[cx, cy] = new Cell
-                        {
-                            Volumes = new Volume[idxReader.ReadUInt16()],
-                        };
-
-                        for (var vi = 0; vi < cell.Volumes.Length; vi++)
-                        {
-                            var rawz = geoReader.ReadUInt16();
-                            var z = rawz > short.MaxValue ? rawz - ushort.MaxValue : rawz;
-                            cell.Volumes[vi] = new Volume
-                            {
-                                Z = (short)z,
-                                Height = geoReader.ReadUInt16(),
-                            };
-                        }
-                    }
-                }
-            }
-        }
-
-        Console.WriteLine($"Loaded zone ({zoneX},{zoneY}) from {idxFilePath}");
-
-        return zone;
-    }
 
     public ConcurrentDictionary<int, Node> GenerateNodes()
     {
@@ -107,8 +35,6 @@ class Generator
         {
             var v = _indexer.IndexedVolumes[idx];
 
-            if (v.Index.CX % 2 == 1 || v.Index.CY % 2 == 1)
-                return;
 
             var step = 1;
 
@@ -164,7 +90,7 @@ class Generator
 
                 var dist = Vector3.Distance(neighCellPos, currCellPos);
 
-                neighbors[i] = _indexer.CellIndexToVolumeIndex[neighVolume.Index];
+                neighbors[i] = _indexer.CellIndexToNodeIndex[neighVolume.Index];
                 distances[i] = Convert.ToInt32(dist);
             }
 
@@ -178,93 +104,6 @@ class Generator
 
         _nodes = nodes;
         return nodes;
-    }
-
-    /// <summary>
-    /// Removes all nodes in odd cells and their connections.
-    /// </summary>
-    /// <exception cref="InvalidOperationException"></exception>
-    public void Simplify()
-    {
-        if (_nodes == null) throw new InvalidOperationException("Nodes must be generated before calling Simplify");
-
-        var toRemove = new List<int>();
-
-        // remove all nodes in odd cells
-        for (int zx = 0; zx < CurrentArea.Size.Width; zx++)
-        {
-            for (int zy = 0; zy < CurrentArea.Size.Height; zy++)
-            {
-                for (int sx = 0; sx < NUM_SQUARES; sx++)
-                {
-                    for (int sy = 0; sy < NUM_SQUARES; sy++)
-                    {
-                        for (int cx = 0; cx < NUM_CELLS; cx++)
-                        {
-                            for (int cy = 0; cy < NUM_CELLS; cy++)
-                            {
-                                if (cx % 2 == 1 || cy % 2 == 1)
-                                {
-                                    // add index to toRemove
-                                    var vols = _indexer.GetIndexedVolumesAtCell(new CellIndex(zx, zy, sx, sy, cx, cy, -1));
-                                    foreach (var vol in vols)
-                                    {
-                                        var index = _indexer.CellIndexToVolumeIndex[vol.Index];
-                                        toRemove.Add(index);
-                                    }
-
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        foreach (var idx in toRemove)
-        {
-            _nodes.TryRemove(idx, out _);
-        }
-
-        // remove pointers to removed nodes
-        Parallel.For(0, CurrentArea.Size.Width, zx =>
-        //for (int zx = 0; zx < CurrentArea.Size.Width; zx++)
-        {
-            for (int zy = 0; zy < CurrentArea.Size.Height; zy++)
-            {
-                for (int sx = 0; sx < NUM_SQUARES; sx++)
-                {
-                    for (int sy = 0; sy < NUM_SQUARES; sy++)
-                    {
-                        //Parallel.For(0, NUM_CELLS, cx =>
-                        for (int cx = 0; cx < NUM_CELLS; cx++)
-                        {
-                            for (int cy = 0; cy < NUM_CELLS; cy++)
-                            {
-                                //if (cx % 2 == 1 || cy % 2 == 1) continue;
-
-                                var vols = _indexer.GetIndexedVolumesAtCell(new CellIndex(zx, zy, sx, sy, cx, cy, -1));
-                                foreach (var vol in vols)
-                                {
-                                    var index = _indexer.CellIndexToVolumeIndex[vol.Index];
-                                    if (!_nodes.TryGetValue(index, out var node)) continue;
-                                    for (var i = 0; i < 8; i++)
-                                    {
-                                        var nodeNeighbor = node.Neighbors[i];
-                                        if (!toRemove.Contains(nodeNeighbor)) continue;
-
-                                        node.Neighbors[i] = -1;
-                                        node.Distances[i] = int.MaxValue;
-                                    }
-                                }
-                            }
-                        }
-                        //);
-                        Console.WriteLine($"Done square {sx},{sy} @ {zx},{zy}");
-                    }
-                }
-            }
-        }
-        );
     }
 
     public void WriteNavdata(string outputFolder)
@@ -292,14 +131,14 @@ class Generator
         {
             for (int zy = 0; zy < CurrentArea.Size.Height; zy++)
             {
-                for (int sx = 0; sx < NUM_SQUARES; sx++)
+                for (int sx = 0; sx < Utils.NUM_SQUARES; sx++)
                 {
-                    for (int sy = 0; sy < NUM_SQUARES; sy++)
+                    for (int sy = 0; sy < Utils.NUM_SQUARES; sy++)
                     {
                         var nodesInSquare = 0;
-                        for (int cx = 0; cx < NUM_CELLS; cx++)
+                        for (int cx = 0; cx < Utils.NUM_CELLS; cx++)
                         {
-                            for (int cy = 0; cy < NUM_CELLS; cy++)
+                            for (int cy = 0; cy < Utils.NUM_CELLS; cy++)
                             {
                                 //if (cx % 2 == 1 || cy % 2 == 1) continue;
                                 var cellIdx = new CellIndex(zx, zy, sx, sy, cx, cy, -1);
@@ -307,7 +146,7 @@ class Generator
 
                                 foreach (var vol in vols)
                                 {
-                                    var nodeIdx = _indexer.CellIndexToVolumeIndex[vol.Index];
+                                    var nodeIdx = _indexer.CellIndexToNodeIndex[vol.Index];
 
                                     if (!_nodes.TryGetValue(nodeIdx, out var node))
                                         continue;
@@ -325,8 +164,8 @@ class Generator
             }
         }
 
-        //gdi.Write(_nodes.Count);
-        gdi.Write(nodesIndices.Count);
+        gdi.Write(_nodes.Count);
+        //gdi.Write(nodesIndices.Count);
         foreach (var i in nodesInSquareList)
         {
             gdi.Write(i);
@@ -363,7 +202,7 @@ class Generator
         }
     }
 
-    bool IsWalkable(Vector3 start, Vector3 end)
+    private bool IsWalkable(Vector3 start, Vector3 end)
     {
         var heading = (end - start) with { Z = 0 };
         var headingSquared = Vector3.DistanceSquared(start, end);
@@ -387,7 +226,7 @@ class Generator
                     return float.Abs(zDiff) <= 15;
                 }
 
-                next = Vector3.DistanceSquared(current, end) >= 16 * 16
+                next = Vector3.DistanceSquared(current, end) >= (16*16)
                     ? next + heading
                     : end;
 
@@ -408,7 +247,7 @@ class Generator
         }
     }
 
-    Volume? CanGoNeighbourhoodCell(CellIndex current, CellIndex next, int z)
+    private Volume? CanGoNeighbourhoodCell(CellIndex current, CellIndex next, int z)
     {
         if (int.Abs(current.GetX() - next.GetX()) > 1 ||
             int.Abs(current.GetY() - next.GetY()) > 1)
@@ -429,7 +268,7 @@ class Generator
         return nextVolume.Volume;
     }
 
-    static IndexedVolume GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
+    private static IndexedVolume GetCellVolumeAt(IEnumerable<IndexedVolume> cell, int z, bool alsoSearchAbove)
     {
         if (z == -16777215)
             return cell.FirstOrDefault();

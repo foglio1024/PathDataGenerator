@@ -1,0 +1,1 @@
+﻿internal readonly record struct Node(float X, float Y, float Z, int[] Neighbors, int[] Distances);

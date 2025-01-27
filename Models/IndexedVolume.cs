@@ -1,0 +1,1 @@
+﻿internal readonly record struct IndexedVolume(CellIndex Index, Volume Volume);
