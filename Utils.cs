@@ -29,8 +29,8 @@ static class Utils
         var (squareX, squareLocalX) = int.DivRem((int)zoneLocalX, (int)Generator.SQUARE_SIZE);
         var (squareY, squareLocalY) = int.DivRem((int)zoneLocalY, (int)Generator.SQUARE_SIZE);
 
-        var cellX = squareLocalX / ((int)Generator.CELL_SIZE * 2);
-        var cellY = squareLocalY / ((int)Generator.CELL_SIZE * 2);
+        var cellX = squareLocalX / ((int)Generator.CELL_SIZE);
+        var cellY = squareLocalY / ((int)Generator.CELL_SIZE);
 
         return new CellIndex((int)zx, (int)zy, squareX, squareY, cellX, cellY, -1);
     }
